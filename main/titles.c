@@ -92,6 +92,14 @@ static int title_handler(window *wind, d_event *event, title_screen *ts)
 			}
 			break;
 
+		case EVENT_JOYSTICK_BUTTON_DOWN:
+			if (ts->allow_keys)
+			{
+				window_close(wind);
+				return 1;
+			}
+			break;
+
 		case EVENT_KEY_COMMAND:
 			if (!call_default_handler(event))
 				if (ts->allow_keys)
@@ -1027,6 +1035,20 @@ static int briefing_handler(window *wind, d_event *event, briefing *br)
 				return 1;
 			}
 			break;
+
+		case EVENT_JOYSTICK_BUTTON_DOWN:
+		{
+			int button = event_joystick_get_button(event);
+			d_event_keycommand kevent;
+			kevent.type = EVENT_KEY_COMMAND;
+			if (button == 0 || button == 10 || button == 2)
+				kevent.keycode = KEY_SPACEBAR;
+			else if (button == 1 || button == 11)
+				kevent.keycode = KEY_ESC;
+			else
+				break;
+			return window_send_event(wind, (d_event *)&kevent);
+		}
 
 		case EVENT_KEY_COMMAND:
 		{

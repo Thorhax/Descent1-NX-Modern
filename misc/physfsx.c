@@ -19,27 +19,111 @@
 #include "object.h"
 #include "newdemo.h"
 
+#include <unistd.h>
+#include <sys/stat.h>
+
 // Initialise PhysicsFS
 void PHYSFSX_init(int argc, char *argv[])
 {
 	char hog[PATH_MAX];
-	int ret = PHYSFS_init(argv[0]);
+	const char *argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
+	int ret = PHYSFS_init(argv0);
+	if (ret != 1 && argv0 != NULL) {
+		con_printf(CON_CRITICAL, "PHYSFS_init with argv[0] failed (%s), retrying with NULL...\n", PHYSFS_getLastError());
+		ret = PHYSFS_init(NULL);
+	}
 	if (ret != 1)
-		Error("Failed to init PHYSFS....\n");
+		Error("Failed to init PHYSFS: %s\n", PHYSFS_getLastError());
 	PHYSFS_permitSymbolicLinks(1);
 
-	// Add base directory
-	PHYSFS_addToSearchPath(PHYSFS_getBaseDir(), 0);
+	const char *base = PHYSFS_getBaseDir();
+	if (!base || strlen(base) == 0)
+		base = "sdmc:/switch/descent1/";
 
+	con_printf(CON_NORMAL, "PHYSFS: Base directory is [%s]\n", base);
+
+	// Add base directory
+	PHYSFS_addToSearchPath(base, 0);
+
+#ifdef __SWITCH__
+	mkdir("sdmc:/switch", 0777);
+	mkdir("sdmc:/switch/descent1", 0777);
+	if (!PHYSFS_setWriteDir("sdmc:/switch/descent1")) {
+		con_printf(CON_CRITICAL, "PHYSFS: setWriteDir to sdmc:/switch/descent1 failed: %s, falling back to base\n", PHYSFS_getLastError());
+		PHYSFS_setWriteDir(base);
+	} else {
+		con_printf(CON_NORMAL, "PHYSFS: Write directory set to [sdmc:/switch/descent1]\n");
+	}
+#else
 	// Set write dir and init args
-	PHYSFS_setWriteDir(PHYSFS_getBaseDir());
+	PHYSFS_setWriteDir(base);
+#endif
+
 	InitArgs( argc,argv );
 
+#ifdef __SWITCH__
+	// Add potential search paths on Switch
+	const char *search_dirs[] = {
+		"sdmc:/switch/descent1",
+		"sdmc:/switch/descent1/data",
+		"sdmc:/switch/descent1/Data",
+		"sdmc:/switch/d1x-switch",
+		"sdmc:/switch/d1x-switch/data",
+		"sdmc:/switch/d1x",
+		"sdmc:/switch/d1x/data",
+		"sdmc:/switch",
+		".",
+		"data",
+		"Data",
+		"romfs:/",
+		NULL
+	};
+	for (int d = 0; search_dirs[d] != NULL; d++) {
+		if (access(search_dirs[d], F_OK) == 0) {
+			if (PHYSFS_addToSearchPath(search_dirs[d], 1)) {
+				con_printf(CON_NORMAL, "PHYSFS: Added [%s] to search path\n", search_dirs[d]);
+			}
+		}
+	}
+
+	// Try to locate descent.hog across candidate paths
+	const char *hog_candidates[] = {
+		"sdmc:/switch/descent1/descent.hog",
+		"sdmc:/switch/descent1/data/descent.hog",
+		"sdmc:/switch/descent1/Data/descent.hog",
+		"sdmc:/switch/d1x/descent.hog",
+		"sdmc:/switch/d1x/data/descent.hog",
+		"sdmc:/switch/descent.hog",
+		"descent.hog",
+		"data/descent.hog",
+		"Data/descent.hog",
+		"romfs:/descent.hog",
+		NULL
+	};
+	int found_hog = 0;
+	for (int h = 0; hog_candidates[h] != NULL; h++) {
+		if (access(hog_candidates[h], F_OK) == 0) {
+			con_printf(CON_NORMAL, "PHYSFS: Found hog candidate at [%s]\n", hog_candidates[h]);
+			if (PHYSFS_addToSearchPath(hog_candidates[h], 0)) {
+				con_printf(CON_NORMAL, "PHYSFS: Successfully mounted hog [%s]\n", hog_candidates[h]);
+				found_hog = 1;
+				break;
+			}
+		}
+	}
+	if (!found_hog) {
+		memset(hog, '\x00', PATH_MAX);
+		snprintf(hog, sizeof(hog), "%sdescent.hog", base);
+		con_printf(CON_NORMAL, "PHYSFS: Trying default hog path [%s]\n", hog);
+		PHYSFS_addToSearchPath(hog, 0);
+	}
+#else
 	// Add hog file
 	memset(hog, '\x00', PATH_MAX);
-	strcpy(hog, PHYSFS_getBaseDir());
+	strcpy(hog, base);
 	strcat(hog, "descent.hog");
 	PHYSFS_addToSearchPath(hog, 0);
+#endif
 }
 
 // Add a searchpath, but that searchpath is relative to an existing searchpath
